@@ -12,19 +12,19 @@ table(world): {
 
 Prefix: "l_"
 #Include: <panda_fixRobotiq.g>
-Include: <panda_fixGripper.g>
+Include: <../robotic/rai-robotModels/scenarios/panda_fixGripper.g>
 
 Prefix: False
 
 Prefix: "r_"
 #Include: <panda_fixRobotiq.g>
-Include: <panda_fixGripper.g>
+Include: <../robotic/rai-robotModels/scenarios/panda_fixGripper.g>
 
 Prefix: False
-Edit r_panda_base (table): { Q: "t(2.01 -.2 .05) d(125 0 0 1)" joint:rigid }
+Edit r_panda_base (table): { Q: "t(1.0278 -.2848 .05) d(123.03 0 0 1)" joint:rigid }
 
 
-Edit l_panda_base (table): { Q: "t(-1.01 -.17 .05) d(90 0 0 1)" joint:rigid }
+Edit l_panda_base (table): { Q: "t(-1 -.2 .05) d(90 0 0 1)" joint:rigid }
 
 Edit l_panda_joint2: { q: -.5 }
 Edit l_panda_joint4: { q: -2 }
