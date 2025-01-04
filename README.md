@@ -12,7 +12,7 @@ and set `bot.cpp`
 rai::String useArm = rai::getParameter<rai::String>("bot/useArm", "both");
 ```
 
-## llm planning
+## single robot planning - llm planning
 
 change `franka.cpp` and `FrankaGripper.cpp` to 
 ```
@@ -23,3 +23,5 @@ and set `bot.cpp`
 ```
 rai::String useArm = rai::getParameter<rai::String>("bot/useArm", "left");
 ```
+>[!NOTE]
+I do not know why but when using single robot planning, it is only working with `left` instead of `right`, and thus when controlling the gripper commands, should use `ry._left`
