@@ -1,5 +1,9 @@
 # komo_real
 
+## installation and compilation
+
+see [here](https://github.com/yuezhezhang/Bug_list/blob/main/contents/KOMOReal.md)
+
 ## bimanual planning
 
 change `franka.cpp` and `FrankaGripper.cpp` to 
