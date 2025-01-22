@@ -47,7 +47,7 @@ pcl = C.addFrame('pcl', 'cameraWrist')
 
 
 C.addFrame('tube') \
-    .setPosition([0.,.1, .9]) \
+    .setPosition([0.,.0, .9]) \
     .setShape(ry.ST.ssBox, size=[.47,.025,.204,.005]) \
     .setColor([1,.5,0]) \
     .setContact(1)
@@ -97,9 +97,6 @@ r_gripper = C.getFrame("r_gripper")
 tube = C.getFrame("tube")
 l= tube.getSize()[0]
 print("l: ",l )
-
-while True:
-    breakpoint
 # print(C.getJointState())
 
 # ###### rotation along z -15 ###############
@@ -195,21 +192,27 @@ q = komo.getPath()
 
 # be careful about the max velocity!!!
 q0= q[0:24]
-q1= q[24:]
+q1= [-0.989721, 0.460272, -0.31306, -1.45885, -2.75816, 2.80719, 0.55961, 0.477026, 0.878017, -0.13644, -0.902709, 1.87192, 2.32057, -1.06615]
 
-bot.moveAutoTimed(q0, .1, .1) # path, max vel, max acc
+bot.moveAutoTimed(q0, .3, .2) # path, max vel, max acc
 while bot.getTimeToEnd()>0:
     bot.sync(C, .1)
 
 
-# bot.gripperMove(ry._left, width=.0, speed=.1)
-# bot.gripperMove(ry._right, width=.0, speed=.1)
+# close the gripper #
+bot.gripperMove(ry._left, width=.0, speed=.1)
+bot.gripperMove(ry._right, width=.0, speed=.1)
 while not (bot.gripperDone(ry._left) and bot.gripperDone(ry._right)):
     bot.sync(C)
 
-bot.moveAutoTimed(q1, .1, .1) # path, max vel, max acc
-while bot.getTimeToEnd()>0:
-    bot.sync(C, .1)
+
+bot.moveTo(q1)
+bot.wait(C)
+
+
+# bot.moveAutoTimed(q1, .1, .1) # path, max vel, max acc
+# while bot.getTimeToEnd()>0:
+#     bot.sync(C, .1)
 
 
 
