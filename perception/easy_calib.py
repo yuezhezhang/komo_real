@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import yaml
 
 from utils import ARUCO_DICT, aruco_display, aruco_pose_esitmation, average_se4
+import threading
 
 ARUCO_TABLE_IDS = [24, 25, 26]
 ARUCO_OBSTACLE_ID = 66
@@ -39,6 +40,11 @@ def resize_K(K, original_size, new_size):
 
 class ZEDArucoPosEst:
     def __init__(self, args):
+        # Shared data
+        self.shared_data = {"obs_pose":None, "obj_pose":None}
+        # Lock to ensure thread safety
+        self.lock = threading.Lock()
+
         # run zed camera
         # initialize zed camera
         self.zed = sl.Camera()
@@ -154,8 +160,8 @@ class ZEDArucoPosEst:
 
         # initialize hypar parameters
         self._latest_zed_data_t = time.time()
-        
-    def run(self):
+    
+    def run_perception(self):
         print("INFO: Starting GUI")
         # TODO change to interactive GUI later 
         cv2.namedWindow("ArucoPoseEtimator", cv2.WINDOW_NORMAL)
@@ -188,7 +194,7 @@ class ZEDArucoPosEst:
                 base_cands = []
                 obstacle_pose = None
                 if ids is not None:
-                    print(f"INFO: Detected markers: {ids.flatten()}")
+                    # print(f"INFO: Detected markers: {ids.flatten()}")
                     aruco_poses ,rgb = aruco_pose_esitmation(rgb, ARUCO_DICT[self.aruco['type']], self.aruco['size'], self.K, self.distortion)
 
                     for id, pose in aruco_poses:
@@ -204,7 +210,7 @@ class ZEDArucoPosEst:
                             cv2.aruco.drawAxis(rgb, self.K, self.distortion, rvec, tvec, 0.1)
                         if int(id) == ARUCO_OBSTACLE_ID:
                             obstacle_pose = pose
-                            print("INFO: Obstacle detected, pose: ", pose)
+                            # print("INFO: Obstacle detected, pose: ", pose)
 
                 if len(base_cands) > 0:
                     # NOTE average the base poses
@@ -212,11 +218,16 @@ class ZEDArucoPosEst:
                     rvec, tvec = cv2.Rodrigues(base_aver_pose[:3, :3])[0], base_aver_pose[:3, 3]
                     cv2.aruco.drawAxis(rgb, self.K, self.distortion, rvec, tvec, 0.15)
 
-                print("INFO: franke base pose: ", base_aver_pose)
+                # print("INFO: franke base pose: ", base_aver_pose)
 
                 if obstacle_pose is not None:
                     obj_in_base = np.dot(np.linalg.inv(base_aver_pose), obstacle_pose)
-                    print("INFO: obstacle pose in base frame: ", obj_in_base)
+                    # print("INFO: obstacle pose in base frame: ", obj_in_base)
+                    # yield f"Sending data!! {obj_in_base}"
+                    with self.lock:
+                        # Add data to the shared resource
+                        self.shared_data["obs_pose"] = obj_in_base
+                        # print("obs_pose added")
 
                 # Normalize the depth image to the range [0, 255]
                 normalized_depth = cv2.normalize(depth, None, 0, 255, cv2.NORM_MINMAX)
@@ -234,6 +245,31 @@ class ZEDArucoPosEst:
         self.zed.close()
         cv2.destroyAllWindows()
 
+    def process_data(self):
+        while True:
+            # Lock before accessing the shared data
+            with self.lock:
+                if self.shared_data["obs_pose"] is not None:
+                    # Process and remove data from the shared resource
+                    data = self.shared_data["obs_pose"]
+                    print(f"Data processed: {data}")
+                else:
+                    time.sleep(0.01)
+            # Simulate some work
+            time.sleep(1)
+
+    def start_threads(self):
+        # Create threads for both functions
+        thread1 = threading.Thread(target=self.run_perception)
+        thread2 = threading.Thread(target=self.process_data)
+        # Start the threads
+        thread1.start()
+        thread2.start()
+        # Optionally, join threads (blocks the main thread)
+        thread1.join()
+        thread2.join()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run 6DPoseSplats on zed camera")
     parser.add_argument("--fps", type=int, default=30, help="Frame rate of the recorded video (default: 30)")
@@ -250,4 +286,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     ape = ZEDArucoPosEst(args)
-    ape.run()
+    # ape.run_perception()
+    ape.start_threads()
