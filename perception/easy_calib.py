@@ -267,21 +267,25 @@ class ZEDArucoPosEst:
         self.C = ry.Config()
         self.C.addFile('/home/frankie/git/komo_real/pandaDual.g')
         # C.view()
+        # 0.05,-.05, 1.4
         self.C.addFrame('tube') \
-            .setPosition([0.05,-.05, 1.1]) \
+            .setPosition([0.0,-0.1, 1.4]) \
             .setShape(ry.ST.ssBox, size=[.47,.025,.104,.005]) \
             .setColor([1,.5,0]) \
             .setContact(0)
         
+        # .3,.15,.1,.005
         # -0.12 ,-0.0357981 , 0.90725959
         self.C.addFrame('obs') \
             .setPosition([8, 8, 8]) \
-            .setShape(ry.ST.ssBox, size=[.34,.21,.12,.005]) \
+            .setShape(ry.ST.ssBox, size=[.4,.15,.1,.005]) \
             .setColor([.1,.1,0]) \
             .setContact(1)
 
+        # 0.0, -0.1, 1.1
+        # 0.05, -0.05, 0.9
         self.C.addFrame('goal') \
-            .setPosition([0.05, -0.05, 0.82]) \
+            .setPosition([0.0, -0.1, 1.12]) \
             .setShape(ry.ST.ssBox, size=[.47,.025,.104,.005]) \
             .setColor([.5,.5,0]) \
             .setContact(0)
@@ -329,8 +333,8 @@ class ZEDArucoPosEst:
         komo.addObjective([1], ry.FS.scalarProductXZ, ['goal', 'l_gripper'], ry.OT.eq, [1e1], [-1])
 
         ret = ry.NLP_Solver(komo.nlp(), verbose=0) .solve()
-        self.qT = komo.getPath()[0]
-
+        # self.qT = komo.getPath()[0]
+        self.qT = komo.getPath()
         self.l_panda_base= self.C.getFrame("l_panda_base").getPosition()
 
 
@@ -352,12 +356,25 @@ class ZEDArucoPosEst:
         self.bot.moveTo(self.q_home)
         self.bot.wait(self.C)
 
+        self.bot.gripperMove(ry._left, width=.7, speed=.1)
+        self.bot.gripperMove(ry._right, width=.7, speed=.1)
+        while not (self.bot.gripperDone(ry._left) and self.bot.gripperDone(ry._right)):
+            self.bot.sync(self.C)
+
         print("joint ", self.C.getJointState())
         self.bot.sync(self.C)
         self.bot.moveTo(self.q0)
         self.bot.wait(self.C)
 
+        self.bot.gripperMove(ry._left, width=.0, speed=.1)
+        self.bot.gripperMove(ry._right, width=.0, speed=.1)
+        while not (self.bot.gripperDone(ry._left) and self.bot.gripperDone(ry._right)):
+            self.bot.sync(self.C)
+
+        i = 0
+
         while True:
+            i += 1
             # Lock before accessing the shared data
             with self.lock:
                 if self.shared_data["obs_pose"] is not None:
@@ -365,23 +382,67 @@ class ZEDArucoPosEst:
                     obs_pose_from_camera = self.shared_data["obs_pose"]
                     # print(f"obstacle position: {obj_pose_from_camera[:, 3]}")
                     obs_position = self.get_obj_position(obs_pose_from_camera)
+                    self.C.getFrame("obs").setPosition(obs_position)
                 else:
                     obs_position = None
-                    time.sleep(0.01)
-            print("obj_real_postion:  ", obs_position)
+                    self.C.getFrame("obs").setPosition([8, 8, 8])
+                    # time.sleep(0.01)
+            # if (not i%100): print("obj_real_postion:  ", obs_position)
             # print("l_base_position", self.l_panda_base )
 
             # Simulate some work
-            if obs_position is not None:
-                self.C.getFrame("obs").setPosition(obs_position)
-            else:
-                self.C.getFrame("obs").setPosition([8, 8, 8])
+            # if obs_position is not None:
+            #     self.C.getFrame("obs").setPosition(obs_position)
+            # else:
+            #     self.C.getFrame("obs").setPosition([8, 8, 8])
             self.bot.sync(self.C)
 
-            time.sleep(1) # important!!!!
-            print("current joint q0", np.linalg.norm(self.bot.get_q()-self.q0))
+            time.sleep(0.2) # important!!!!
+            # print("current joint q0", np.linalg.norm(self.bot.get_q()-self.q0))
+            # print("current joint qT", np.linalg.norm(self.bot.get_q()-self.qT))
+            if np.linalg.norm(self.bot.get_q()-self.q0) < 0.05:
+                start = self.q0
+                goal = self.qT
+            elif np.linalg.norm(self.bot.get_q()-self.qT) < 0.05:
+                start = self.qT
+                goal = self.q0
+            else: 
+                start = None
+                goal = None
 
+            if start is not None:
+                # if obs_position is not None: time.sleep(2)
+                # time.sleep(1)
+                # if obs_position is not None:
+                #     self.C.getFrame("obs").setPosition(obs_position)
+                # else:
+                #     self.C.getFrame("obs").setPosition([8, 8, 8])
+                # self.bot.sync(self.C)
+                
+                # time.sleep(4.0)
+                # print("start==q0 ", start == self.q0)
+                rrt = ry.PathFinder()
+                rrt.setProblem(self.C, [start], [goal])
 
+                ret = rrt.solve()
+                # print(ret.feasible)
+                path = ret.x
+                # print(path)
+
+                if ret.feasible:
+                    if len(path) < 3:
+                        # print
+                        for i in range(len(path)):
+                            self.bot.moveTo(path[i])
+                            self.bot.sync(self.C)
+                    else:
+                        self.bot.moveAutoTimed(path, .4, .2) # path, max vel, max acc .4, .2
+                        while self.bot.getTimeToEnd()>0:
+                            self.bot.sync(self.C, .1)
+                else:
+                    print("no path find")
+                # time.sleep(2)
+                
 
     def start_threads(self):
         # Create threads for both functions
