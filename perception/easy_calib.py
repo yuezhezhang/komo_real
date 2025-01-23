@@ -10,6 +10,7 @@ import yaml
 
 from utils import ARUCO_DICT, aruco_display, aruco_pose_esitmation, average_se4
 import threading
+import robotic as ry
 
 ARUCO_TABLE_IDS = [24, 25, 26]
 ARUCO_OBSTACLE_ID = 66
@@ -228,6 +229,10 @@ class ZEDArucoPosEst:
                         # Add data to the shared resource
                         self.shared_data["obs_pose"] = obj_in_base
                         # print("obs_pose added")
+                else:
+                    with self.lock:
+                        # Add data to the shared resource
+                        self.shared_data["obs_pose"] = None
 
                 # Normalize the depth image to the range [0, 255]
                 normalized_depth = cv2.normalize(depth, None, 0, 255, cv2.NORM_MINMAX)
@@ -258,10 +263,130 @@ class ZEDArucoPosEst:
             # Simulate some work
             time.sleep(1)
 
+    def run_ik(self):
+        self.C = ry.Config()
+        self.C.addFile('/home/frankie/git/komo_real/pandaDual.g')
+        # C.view()
+        self.C.addFrame('tube') \
+            .setPosition([0.05,-.05, 1.1]) \
+            .setShape(ry.ST.ssBox, size=[.47,.025,.104,.005]) \
+            .setColor([1,.5,0]) \
+            .setContact(0)
+        
+        # -0.12 ,-0.0357981 , 0.90725959
+        self.C.addFrame('obs') \
+            .setPosition([8, 8, 8]) \
+            .setShape(ry.ST.ssBox, size=[.34,.21,.12,.005]) \
+            .setColor([.1,.1,0]) \
+            .setContact(1)
+
+        self.C.addFrame('goal') \
+            .setPosition([0.05, -0.05, 0.82]) \
+            .setShape(ry.ST.ssBox, size=[.47,.025,.104,.005]) \
+            .setColor([.5,.5,0]) \
+            .setContact(0)
+        
+        # C.view(False,"real_env")
+
+        self.bot = ry.BotOp(self.C, useRealRobot=True)
+        self.bot.sync(self.C)
+
+        self.q_home = self.bot.get_qHome()
+        tube = self.C.getFrame('tube')
+        l= tube.getSize()[0]
+
+        # IK q0
+        komo = ry.KOMO(self.C, phases=1, slicesPerPhase=1, kOrder=1, enableCollisions=False)
+        komo.addControlObjective([], 0, 1e-1)
+        komo.addControlObjective([], 1, 1e0)
+        komo.addObjective([1], ry.FS.positionRel, ['r_gripper', 'tube'], ry.OT.eq, [1e1], target=[l/2,0,0])
+        komo.addObjective([1], ry.FS.positionRel, ['l_gripper', 'tube'], ry.OT.eq, [1e1], target=[-l/2,0,0])
+        komo.addObjective([1], ry.FS.scalarProductXX, ['r_gripper', 'tube'], ry.OT.eq, [1e1], [0])
+        komo.addObjective([1], ry.FS.scalarProductXZ, ['r_gripper', 'tube'], ry.OT.eq, [1e1], [0])
+        komo.addObjective([1], ry.FS.scalarProductZZ, ['r_gripper', 'tube'], ry.OT.eq, [1e1], [0])
+
+        komo.addObjective([1], ry.FS.scalarProductXX, ['l_gripper', 'tube'], ry.OT.eq, [1e1], [0])
+        komo.addObjective([1], ry.FS.scalarProductXZ, ['l_gripper', 'tube'], ry.OT.eq, [1e1], [0])
+        komo.addObjective([1], ry.FS.scalarProductZZ, ['l_gripper', 'tube'], ry.OT.eq, [1e1], [0])
+        komo.addObjective([1], ry.FS.scalarProductXZ, ['tube', 'l_gripper'], ry.OT.eq, [1e1], [-1])
+        ret = ry.NLP_Solver(komo.nlp(), verbose=0) .solve()
+
+        self.q0 = komo.getPath()[0]
+
+        # IK qT
+        komo = ry.KOMO(self.C, phases=1, slicesPerPhase=1, kOrder=1, enableCollisions=False)
+        komo.addControlObjective([], 0, 1e-1)
+        komo.addControlObjective([], 1, 1e0)
+        komo.addObjective([1], ry.FS.positionRel, ['r_gripper', 'goal'], ry.OT.eq, [1e1], target=[l/2,0,0])
+        komo.addObjective([1], ry.FS.positionRel, ['l_gripper', 'goal'], ry.OT.eq, [1e1], target=[-l/2,0,0])
+        komo.addObjective([1], ry.FS.scalarProductXX, ['r_gripper', 'goal'], ry.OT.eq, [1e1], [0])
+        komo.addObjective([1], ry.FS.scalarProductXZ, ['r_gripper', 'goal'], ry.OT.eq, [1e1], [0])
+        komo.addObjective([1], ry.FS.scalarProductZZ, ['r_gripper', 'goal'], ry.OT.eq, [1e1], [0])
+
+        komo.addObjective([1], ry.FS.scalarProductXX, ['l_gripper', 'goal'], ry.OT.eq, [1e1], [0])
+        komo.addObjective([1], ry.FS.scalarProductXZ, ['l_gripper', 'goal'], ry.OT.eq, [1e1], [0])
+        komo.addObjective([1], ry.FS.scalarProductZZ, ['l_gripper', 'goal'], ry.OT.eq, [1e1], [0])
+        komo.addObjective([1], ry.FS.scalarProductXZ, ['goal', 'l_gripper'], ry.OT.eq, [1e1], [-1])
+
+        ret = ry.NLP_Solver(komo.nlp(), verbose=0) .solve()
+        self.qT = komo.getPath()[0]
+
+        self.l_panda_base= self.C.getFrame("l_panda_base").getPosition()
+
+
+    def get_obj_position(self, obj_pose_from_camera):
+        obj_position = obj_pose_from_camera[:3,3]
+        obj_position[:2] = self.l_panda_base[:2]-obj_position[:2]
+        obj_position[2] = self.l_panda_base[2] + obj_position[2] -0.06 # 0.06 is box size
+        # print("hhhhh")
+        return obj_position
+
+    def run_planning(self):
+        self.run_ik()
+        print("qhome: ", self.q_home)
+        print("q0: ", self.q0)
+        print("qT: ", self.qT)
+        obs_position = None
+
+        self.bot.sync(self.C)
+        self.bot.moveTo(self.q_home)
+        self.bot.wait(self.C)
+
+        print("joint ", self.C.getJointState())
+        self.bot.sync(self.C)
+        self.bot.moveTo(self.q0)
+        self.bot.wait(self.C)
+
+        while True:
+            # Lock before accessing the shared data
+            with self.lock:
+                if self.shared_data["obs_pose"] is not None:
+                    # Process and remove data from the shared resource
+                    obs_pose_from_camera = self.shared_data["obs_pose"]
+                    # print(f"obstacle position: {obj_pose_from_camera[:, 3]}")
+                    obs_position = self.get_obj_position(obs_pose_from_camera)
+                else:
+                    obs_position = None
+                    time.sleep(0.01)
+            print("obj_real_postion:  ", obs_position)
+            # print("l_base_position", self.l_panda_base )
+
+            # Simulate some work
+            if obs_position is not None:
+                self.C.getFrame("obs").setPosition(obs_position)
+            else:
+                self.C.getFrame("obs").setPosition([8, 8, 8])
+            self.bot.sync(self.C)
+
+            time.sleep(1) # important!!!!
+            print("current joint q0", np.linalg.norm(self.bot.get_q()-self.q0))
+
+
+
     def start_threads(self):
         # Create threads for both functions
         thread1 = threading.Thread(target=self.run_perception)
-        thread2 = threading.Thread(target=self.process_data)
+        thread2 = threading.Thread(target=self.run_planning)
         # Start the threads
         thread1.start()
         thread2.start()
