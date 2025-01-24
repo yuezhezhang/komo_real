@@ -14,7 +14,7 @@ class Planning:
         # 0.05,-.05, 1.4
         self.C.addFrame('tube') \
             .setPosition([0.15,-0.1, 1.55]) \
-            .setShape(ry.ST.ssBox, size=[.47,.025,.104,.005]) \
+            .setShape(ry.ST.ssBox, size=[.43,.025,.104,.005]) \
             .setColor([1,.5,0]) \
             .setContact(0)
         
@@ -22,7 +22,7 @@ class Planning:
         # -0.12 ,-0.0357981 , 0.90725959
         self.C.addFrame('obs') \
             .setPosition([8, 8, 8]) \
-            .setShape(ry.ST.ssBox, size=[.40,.21,.1,.005]) \
+            .setShape(ry.ST.ssBox, size=[.34,.21,.1,.005]) \
             .setColor([.1,.1,0]) \
             .setContact(1)
 
@@ -31,7 +31,7 @@ class Planning:
         # 0.05, -0.05, 0.9
         self.C.addFrame('goal') \
             .setPosition([0.15, -0.1, 1.13]) \
-            .setShape(ry.ST.ssBox, size=[.47,.025,.104,.005]) \
+            .setShape(ry.ST.ssBox, size=[.43,.025,.104,.005]) \
             .setColor([.5,.5,0]) \
             .setContact(0)
         
@@ -61,6 +61,10 @@ class Planning:
         self.bot.sync(self.C)
         self.bot.moveTo(self.q0)
         self.bot.wait(self.C)
+
+        time.sleep(1)
+        self.bot.gripperMove(ry._left, width=.0, speed=.1)
+        self.bot.gripperMove(ry._right, width=.0, speed=.1)
         
     def run_ik(self):
         # IK q0
@@ -106,8 +110,8 @@ class Planning:
                 return obj_position
             else:
                 obj_position[:2] = self.l_panda_base[:2]-obj_position[:2]
-                obj_position[1] = obj_position[1]+0.02
-                obj_position[2] = self.l_panda_base[2] + obj_position[2] -0.06 # 0.06 is box size
+                obj_position[1] = obj_position[1]- 0.12
+                obj_position[2] = self.l_panda_base[2] + obj_position[2]  # 0.06 is box size
                 # print("camera", obj_position)
                 # print("base ", self.l_panda_base)
                 # print("obj", obj_position)
@@ -127,9 +131,9 @@ class Planning:
         # self.bot.moveTo(self.q_home)
         # print(self.q_home)
 
-
-        self.bot.gripperMove(ry._left, width=.0, speed=.1)
-        self.bot.gripperMove(ry._right, width=.0, speed=.1)
+        # time.sleep(1)
+        self.bot.gripperMove(ry._left, width=.025, speed=.1)
+        self.bot.gripperMove(ry._right, width=.025, speed=.1)
         while not (self.bot.gripperDone(ry._left) and self.bot.gripperDone(ry._right)):
             self.bot.sync(self.C)
 
@@ -183,7 +187,7 @@ class Planning:
                     # self.bot.sync(self.C)
                 print(len(path))
                 if len(path) < 3:
-                    # print("moveTo", path[0] == start)
+                    print("moveTo!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", path[0] == start)
                     for i in range(len(path)):
                         self.bot.moveTo(path[i])    
                         self.bot.wait(self.C)

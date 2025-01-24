@@ -23,8 +23,9 @@ Include: <../robotic/rai-robotModels/scenarios/panda_fixGripper.g>
 Prefix: False
 Edit r_panda_base (table): { Q: "t(1.0278 -.2848 .05) d(123.03 0 0 1)" joint:rigid }
 
+# Edit l_panda_base (table): { Q: "t(-1 -.2 .05) d(90 0 0 1)" joint:rigid }
 
-Edit l_panda_base (table): { Q: "t(-1 -.2 .05) d(90 0 0 1)" joint:rigid }
+Edit l_panda_base (table): { Q: "t(-0.7 -.2 .05) d(90 0 0 1)" joint:rigid }
 
 Edit l_panda_joint2: { q: -.5 }
 Edit l_panda_joint4: { q: -2 }
