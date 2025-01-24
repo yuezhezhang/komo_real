@@ -11,6 +11,8 @@ import yaml
 from utils import ARUCO_DICT, aruco_display, aruco_pose_esitmation, average_se4
 import threading
 import robotic as ry
+import json
+from collections import deque
 
 ARUCO_TABLE_IDS = [24, 25, 26]
 ARUCO_OBSTACLE_ID = 66
@@ -161,7 +163,10 @@ class ZEDArucoPosEst:
 
         # initialize hypar parameters
         self._latest_zed_data_t = time.time()
-    
+
+        # self.run_ik()
+        self.last_10_frames = deque(maxlen=10)
+
     def run_perception(self):
         print("INFO: Starting GUI")
         # TODO change to interactive GUI later 
@@ -176,6 +181,7 @@ class ZEDArucoPosEst:
                 dt = (time.time() - self._latest_zed_data_t)
                 self._latest_zed_data_t = time.time()
 
+                print(f"run_perception runs at {1/dt} Hz")
                 # Convert the images to OpenCV format (BGR for RGB and a grayscale for depth)
                 rgb = self.image.get_data()[:, :, :3]  # Get the RGB part of the image
                 depth = self.depth.get_data()
@@ -219,20 +225,40 @@ class ZEDArucoPosEst:
                     rvec, tvec = cv2.Rodrigues(base_aver_pose[:3, :3])[0], base_aver_pose[:3, 3]
                     cv2.aruco.drawAxis(rgb, self.K, self.distortion, rvec, tvec, 0.15)
 
-                # print("INFO: franke base pose: ", base_aver_pose)
+                
+                # with self.lock:
+                #     if obstacle_pose is not None:
+                #         obj_in_base = np.dot(np.linalg.inv(base_aver_pose), obstacle_pose)
+                #         print("INFO: obstacle pose in base frame: ", obj_in_base[:3, 3])
+                #         # yield f"Sending data!! {obj_in_base}"
+                        
+                #         # Add data to the shared resource
+                #         self.shared_data["obs_pose"] = obj_in_base
+                #         # print("obs_pose added")
+                #     else:
+                #         # Add data to the shared resource
+                #         self.shared_data["obs_pose"] = None
 
+                
+                FILE_PATH = "data.json"
                 if obstacle_pose is not None:
                     obj_in_base = np.dot(np.linalg.inv(base_aver_pose), obstacle_pose)
-                    # print("INFO: obstacle pose in base frame: ", obj_in_base)
-                    # yield f"Sending data!! {obj_in_base}"
-                    with self.lock:
-                        # Add data to the shared resource
-                        self.shared_data["obs_pose"] = obj_in_base
-                        # print("obs_pose added")
+                    print("INFO: obstacle pose in base frame: ", obj_in_base[:3, 3])
+                    data = list(obj_in_base[:3, 3])
                 else:
-                    with self.lock:
-                        # Add data to the shared resource
-                        self.shared_data["obs_pose"] = None
+                    data = [10, 10, 10]
+
+                # with open(FILE_PATH, "w") as f:
+                #     json.dump(data, f)
+                # print(f"Generated data: {data}")
+
+                self.last_10_frames.append(data)
+                # Serialize the last 10 frames and write them to the file
+                with open(FILE_PATH, "w") as f:
+                    json.dump(list(self.last_10_frames), f)
+
+                # with open(FILE_PATH, "a") as f:
+                #     f.write(json.dumps(data) + "\n")
 
                 # Normalize the depth image to the range [0, 255]
                 normalized_depth = cv2.normalize(depth, None, 0, 255, cv2.NORM_MINMAX)
@@ -269,7 +295,7 @@ class ZEDArucoPosEst:
         # C.view()
         # 0.05,-.05, 1.4
         self.C.addFrame('tube') \
-            .setPosition([0.0,-0.1, 1.4]) \
+            .setPosition([0.15,-0.1, 1.55]) \
             .setShape(ry.ST.ssBox, size=[.47,.025,.104,.005]) \
             .setColor([1,.5,0]) \
             .setContact(0)
@@ -278,14 +304,15 @@ class ZEDArucoPosEst:
         # -0.12 ,-0.0357981 , 0.90725959
         self.C.addFrame('obs') \
             .setPosition([8, 8, 8]) \
-            .setShape(ry.ST.ssBox, size=[.4,.15,.1,.005]) \
+            .setShape(ry.ST.ssBox, size=[.4,.21,.1,.005]) \
             .setColor([.1,.1,0]) \
             .setContact(1)
 
+        # 0.15, -0.1, 1.1 yesterday
         # 0.0, -0.1, 1.1
         # 0.05, -0.05, 0.9
         self.C.addFrame('goal') \
-            .setPosition([0.0, -0.1, 1.12]) \
+            .setPosition([0.15, -0.1, 1.12]) \
             .setShape(ry.ST.ssBox, size=[.47,.025,.104,.005]) \
             .setColor([.5,.5,0]) \
             .setContact(0)
@@ -333,8 +360,7 @@ class ZEDArucoPosEst:
         komo.addObjective([1], ry.FS.scalarProductXZ, ['goal', 'l_gripper'], ry.OT.eq, [1e1], [-1])
 
         ret = ry.NLP_Solver(komo.nlp(), verbose=0) .solve()
-        # self.qT = komo.getPath()[0]
-        self.qT = komo.getPath()
+        self.qT = komo.getPath()[0]
         self.l_panda_base= self.C.getFrame("l_panda_base").getPosition()
 
 
@@ -342,19 +368,27 @@ class ZEDArucoPosEst:
         obj_position = obj_pose_from_camera[:3,3]
         obj_position[:2] = self.l_panda_base[:2]-obj_position[:2]
         obj_position[2] = self.l_panda_base[2] + obj_position[2] -0.06 # 0.06 is box size
+        print("camera", obj_pose_from_camera[:3,3])
+        # print("base ", self.l_panda_base)
+        # print("obj", obj_position)
         # print("hhhhh")
         return obj_position
 
     def run_planning(self):
-        self.run_ik()
+        latest_plan_t = time.time()
         print("qhome: ", self.q_home)
         print("q0: ", self.q0)
         print("qT: ", self.qT)
         obs_position = None
 
-        self.bot.sync(self.C)
+        # self.bot.sync(self.C)
+        self.q_home[0] -= 0.5
         self.bot.moveTo(self.q_home)
-        self.bot.wait(self.C)
+        # print(self.q_home)
+
+        # while True:
+        #     breakpoint
+        # self.bot.wait(self.C)
 
         self.bot.gripperMove(ry._left, width=.7, speed=.1)
         self.bot.gripperMove(ry._right, width=.7, speed=.1)
@@ -373,53 +407,50 @@ class ZEDArucoPosEst:
 
         i = 0
 
+        obs_position = [8, 8, 8]
+
         while True:
             i += 1
             # Lock before accessing the shared data
+
+            dt = time.time() - latest_plan_t
+            latest_plan_t = time.time()
+            # print(f"Planning runs at {1/dt} Hz")
             with self.lock:
                 if self.shared_data["obs_pose"] is not None:
                     # Process and remove data from the shared resource
                     obs_pose_from_camera = self.shared_data["obs_pose"]
-                    # print(f"obstacle position: {obj_pose_from_camera[:, 3]}")
+                    self.shared_data["obs_pose"] = None
+                    print(f"obstacle position: {obs_pose_from_camera[:3, 3]}")
                     obs_position = self.get_obj_position(obs_pose_from_camera)
-                    self.C.getFrame("obs").setPosition(obs_position)
-                else:
-                    obs_position = None
-                    self.C.getFrame("obs").setPosition([8, 8, 8])
+                    # self.C.getFrame("obs").setPosition(obs_position)
                     # time.sleep(0.01)
-            # if (not i%100): print("obj_real_postion:  ", obs_position)
-            # print("l_base_position", self.l_panda_base )
+                else:
+                    obs_position = [100, 8, 8]
+                    # time.sleep(0.01)
 
-            # Simulate some work
-            # if obs_position is not None:
-            #     self.C.getFrame("obs").setPosition(obs_position)
-            # else:
-            #     self.C.getFrame("obs").setPosition([8, 8, 8])
-            self.bot.sync(self.C)
 
-            time.sleep(0.2) # important!!!!
-            # print("current joint q0", np.linalg.norm(self.bot.get_q()-self.q0))
-            # print("current joint qT", np.linalg.norm(self.bot.get_q()-self.qT))
+            self.C.getFrame("obs").setPosition(obs_position)
+            self.bot.sync(self.C, .01)
+
+            time.sleep(0.01) # important!!!!
+            # # print("current joint q0", np.linalg.norm(self.bot.get_q()-self.q0))
+            # # print("current joint qT", np.linalg.norm(self.bot.get_q()-self.qT))
             if np.linalg.norm(self.bot.get_q()-self.q0) < 0.05:
                 start = self.q0
                 goal = self.qT
+                # self.C.getFrame("obs").setPosition(obs_position)
+                # self.bot.sync(self.C)
             elif np.linalg.norm(self.bot.get_q()-self.qT) < 0.05:
                 start = self.qT
                 goal = self.q0
+                # self.C.getFrame("obs").setPosition(obs_position)
+                # self.bot.sync(self.C)
             else: 
                 start = None
                 goal = None
 
             if start is not None:
-                # if obs_position is not None: time.sleep(2)
-                # time.sleep(1)
-                # if obs_position is not None:
-                #     self.C.getFrame("obs").setPosition(obs_position)
-                # else:
-                #     self.C.getFrame("obs").setPosition([8, 8, 8])
-                # self.bot.sync(self.C)
-                
-                # time.sleep(4.0)
                 # print("start==q0 ", start == self.q0)
                 rrt = ry.PathFinder()
                 rrt.setProblem(self.C, [start], [goal])
@@ -434,11 +465,11 @@ class ZEDArucoPosEst:
                         # print
                         for i in range(len(path)):
                             self.bot.moveTo(path[i])
-                            self.bot.sync(self.C)
+                            self.bot.sync(self.C, .01)
                     else:
                         self.bot.moveAutoTimed(path, .4, .2) # path, max vel, max acc .4, .2
                         while self.bot.getTimeToEnd()>0:
-                            self.bot.sync(self.C, .1)
+                            self.bot.sync(self.C, .02)
                 else:
                     print("no path find")
                 # time.sleep(2)
@@ -472,5 +503,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     ape = ZEDArucoPosEst(args)
-    # ape.run_perception()
-    ape.start_threads()
+    ape.run_perception()
+    # ape.start_threads()
