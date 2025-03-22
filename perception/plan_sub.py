@@ -4,7 +4,11 @@ import cloudpickle
 import numpy as np
 import robotic as ry
 
-
+def get_path_length(path):
+    l_path = 0
+    for i in range(len(path)-1):
+        l_path += np.linalg.norm(path[i, :] - path[i+1, :])
+    return l_path
 
 class Planning:
     def __init__(self, args=None):
@@ -50,7 +54,12 @@ class Planning:
         self.l= tube.getSize()[0]
         self.l_panda_base= self.C.getFrame("l_panda_base").getPosition()
 
-        self.default_obs = [0.15,-0.1, 1.3]
+        # obj1 [0.15,-0.1, 1.3]
+        # obj2 [0.15,-0.1, 1.33]
+        # obj3 [0.15,-0.15, 1.33]
+        # obj4 [0.15,-0.12, 1.36]
+        # obj5 [0.15,-0.1, 1.37]
+        self.default_obs = [0.15,-0.1, 1.37]
         self.saved_frames = self.default_obs  # To track the last processed data
         self.latest_data = self.default_obs
         self.run_ik()
@@ -68,6 +77,9 @@ class Planning:
         time.sleep(1)
         self.bot.gripperMove(ry._left, width=.0, speed=.1)
         self.bot.gripperMove(ry._right, width=.0, speed=.1)
+
+        self.iter = 0
+        self.save_data = []
         
     def run_ik(self):
         # IK q0
@@ -113,7 +125,8 @@ class Planning:
             if np.all(obj_in_camera_pos == self.default_obs): # np.array([10, 10, 10])
                 return obj_position
             else:
-                # return self.default_obs
+                return self.default_obs
+                # update obj pos from camera
                 obj_position[:2] = self.l_panda_base[:2]-obj_position[:2]
                 obj_position[1] = obj_position[1]- 0.12
                 obj_position[2] = self.l_panda_base[2] + obj_position[2]  # 0.06 is box size
@@ -142,9 +155,8 @@ class Planning:
         while not (self.bot.gripperDone(ry._left) and self.bot.gripperDone(ry._right)):
             self.bot.sync(self.C)
 
+        self.iter += 1
         i = 0
-
-
         # while True:
         i += 1
         # Lock before accessing the shared data
@@ -184,7 +196,15 @@ class Planning:
             ret = rrt.solve()
             # print(ret.feasible)
             path = ret.x
-            # print(path)
+            print("path", path)
+            print("path d0", len(path))
+            print("path length", get_path_length(path))
+            print("running time", ret.time)
+            print("iter", self.iter)
+            if self.iter <= 10:
+                self.save_data.append([ret.time, get_path_length(path), len(path), ret.feasible])
+            if (self.iter == 10):
+                np.savetxt("../data/obj_rrt_exp.csv", self.save_data, delimiter=",", comments="", fmt="%.4f")
 
             if ret.feasible:
                 # for i in range(len(path)):
@@ -224,6 +244,8 @@ def main():
             data = np.asanyarray(data)
             print(data[:3,-1])
             planner.run_planning(data[:3,-1])
+            if planner.iter > 10:
+                break
             # Sleep to simulate processing or interval
             time.sleep(1)
     except KeyboardInterrupt:
