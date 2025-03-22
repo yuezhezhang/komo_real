@@ -20,9 +20,11 @@ class Planning:
         
         # .3,.15,.1,.005
         # -0.12 ,-0.0357981 , 0.90725959
+
+        # .setShape(ry.ST.ssBox, size=[.34,.21,.1,.005])
         self.C.addFrame('obs') \
             .setPosition([8, 8, 8]) \
-            .setShape(ry.ST.ssBox, size=[.34,.21,.1,.005]) \
+            .setShape(ry.ST.ssBox, size=[.44,.21,.1,.005]) \
             .setColor([.1,.1,0]) \
             .setContact(1)
 
@@ -48,8 +50,9 @@ class Planning:
         self.l= tube.getSize()[0]
         self.l_panda_base= self.C.getFrame("l_panda_base").getPosition()
 
-        self.saved_frames = [10, 10, 10]  # To track the last processed data
-        self.latest_data = [10, 10, 10]
+        self.default_obs = [0.15,-0.1, 1.3]
+        self.saved_frames = self.default_obs  # To track the last processed data
+        self.latest_data = self.default_obs
         self.run_ik()
 
         self.bot.gripperMove(ry._left, width=.7, speed=.1)
@@ -68,7 +71,8 @@ class Planning:
         
     def run_ik(self):
         # IK q0
-        komo = ry.KOMO(self.C, phases=1, slicesPerPhase=1, kOrder=1, enableCollisions=False)
+        self.C.getFrame("obs").setPosition(self.default_obs)
+        komo = ry.KOMO(self.C, phases=1, slicesPerPhase=1, kOrder=1, enableCollisions=True)
         komo.addControlObjective([], 0, 1e-1)
         komo.addControlObjective([], 1, 1e0)
         komo.addObjective([1], ry.FS.positionRel, ['r_gripper', 'tube'], ry.OT.eq, [1e1], target=[self.l/2,0,0])
@@ -86,7 +90,7 @@ class Planning:
         self.q0 = komo.getPath()[0]
 
         # IK qT
-        komo = ry.KOMO(self.C, phases=1, slicesPerPhase=1, kOrder=1, enableCollisions=False)
+        komo = ry.KOMO(self.C, phases=1, slicesPerPhase=1, kOrder=1, enableCollisions=True)
         komo.addControlObjective([], 0, 1e-1)
         komo.addControlObjective([], 1, 1e0)
         komo.addObjective([1], ry.FS.positionRel, ['r_gripper', 'goal'], ry.OT.eq, [1e1], target=[self.l/2,0,0])
@@ -106,15 +110,16 @@ class Planning:
     def get_obj_position(self, obj_in_camera_pos):
         if obj_in_camera_pos is not None:
             obj_position = obj_in_camera_pos
-            if np.all(obj_in_camera_pos == np.array([10, 10, 10])):
+            if np.all(obj_in_camera_pos == self.default_obs): # np.array([10, 10, 10])
                 return obj_position
             else:
+                # return self.default_obs
                 obj_position[:2] = self.l_panda_base[:2]-obj_position[:2]
                 obj_position[1] = obj_position[1]- 0.12
                 obj_position[2] = self.l_panda_base[2] + obj_position[2]  # 0.06 is box size
                 # print("camera", obj_position)
                 # print("base ", self.l_panda_base)
-                # print("obj", obj_position)
+                print("update obj pos", obj_position)
                 return obj_position
     
 
@@ -171,7 +176,7 @@ class Planning:
         if start is not None:
             # print("start==q0 ", start == self.q0)
             self.C.getFrame("obs").setPosition(obs_position)
-            print("set obs")
+            print(f"set obs: {obs_position}")
             self.bot.sync(self.C, .01)
             rrt = ry.PathFinder()
             rrt.setProblem(self.C, [start], [goal])
