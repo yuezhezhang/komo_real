@@ -59,7 +59,7 @@ class Planning:
         # obj3 [0.15,-0.15, 1.33]
         # obj4 [0.15,-0.12, 1.36]
         # obj5 [0.15,-0.1, 1.37]
-        self.default_obs = [0.15,-0.1, 1.37]
+        self.default_obs = [0.15,-0.1, 1.3]
         self.saved_frames = self.default_obs  # To track the last processed data
         self.latest_data = self.default_obs
         self.run_ik()
@@ -200,9 +200,10 @@ class Planning:
             print("path d0", len(path))
             print("path length", get_path_length(path))
             print("running time", ret.time)
+            print("retrieve time", ret.retrieve_time)
             print("iter", self.iter)
             if self.iter <= 10:
-                self.save_data.append([ret.time, get_path_length(path), len(path), ret.feasible])
+                self.save_data.append([ret.time, get_path_length(path), len(path), ret.feasible, ret.retrieve_time])
             if (self.iter == 10):
                 np.savetxt("../data/obj_rrt_exp.csv", self.save_data, delimiter=",", comments="", fmt="%.4f")
 
